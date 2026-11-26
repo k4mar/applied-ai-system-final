@@ -344,8 +344,8 @@ def render_coach() -> None:
     st.progress(advice.confidence, text=f"Confidence {advice.confidence:.0%}")
     if advice.mode == MODE_FALLBACK:
         st.warning(
-            "The AI's draft failed a safety check, so this is the planner's exact "
-            "answer instead."
+            "The AI's answer could not be used (see the trace below), so this is "
+            "the planner's exact recommendation instead."
         )
     elif advice.mode == MODE_REPAIRED:
         st.caption("The first draft failed a check and was corrected by the agent.")

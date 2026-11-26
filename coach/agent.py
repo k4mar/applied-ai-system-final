@@ -209,17 +209,20 @@ class CoachAgent:
         # 5. FALLBACK --------------------------------------------------------
         guess = plan.optimal_guess
         cite = [retrieved[0].id] if retrieved else []
-        step(
-            "fallback", guess=guess, reason="model output failed guardrails or errored"
+        crashed = any(e.startswith("provider error") for e in all_errors)
+        why = (
+            "The AI model could not be reached"
+            if crashed
+            else "The AI's own answer failed a safety check"
         )
+        step("fallback", guess=guess, reason=why)
         return self._finish(
             CoachAdvice(
                 suggested_guess=guess,
                 explanation=(
                     f"The live interval is {plan.live_low}-{plan.live_high}; "
                     f"{guess} is its midpoint, which halves what is left. "
-                    "(The AI's own answer failed a safety check, so this is the "
-                    "planner's exact recommendation.)"
+                    f"({why}, so this is the planner's exact recommendation.)"
                 ),
                 confidence=combined_confidence(
                     plan, guess, 0.5, retrieved, MODE_FALLBACK
