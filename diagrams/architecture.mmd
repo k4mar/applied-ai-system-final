@@ -1,0 +1,43 @@
+flowchart TD
+    %% ---------- Human / UI ----------
+    Player([👤 Player]) -->|types guess| UI[app.py<br/>Streamlit UI]
+    Player -->|clicks Ask AI Coach| UI
+    UI -->|parse_guess / check_guess| Logic[logic_utils.py<br/>game rules + secret]
+    Logic -->|hint: too high / too low / win| UI
+
+    %% ---------- Boundary: the secret stays behind it ----------
+    UI -->|"GameObservation<br/>(guesses + hints only,<br/>NO secret)"| Agent
+
+    subgraph Coach["coach/ (AI Coach agent)"]
+        direction TB
+        Agent[agent.py<br/>CoachAgent loop] --> Plan[planner.py<br/>live interval, midpoint,<br/>attempts left, situation tags]
+        Plan -->|situation query| Ret[retriever.py<br/>BM25 search]
+        KB[(knowledge/*.md<br/>28 strategy passages)] --> Ret
+        Ret -->|top-3 passages| Prompt[llm.py<br/>build_prompt]
+        Plan -->|exact facts| Prompt
+        Prompt --> LLM{{LLM provider<br/>OpenAI gpt-4o-mini<br/>or offline rules}}
+        LLM -->|JSON draft| Guard[guardrails.py<br/>schema, in-interval, no repeat,<br/>no secret claim, real citations,<br/>confidence 0-1]
+        Guard -->|fail: error list| Repair[repair: send errors<br/>back to model, 1 retry]
+        Repair --> Prompt
+        Guard -->|fail twice or provider error| Fallback[fallback: planner midpoint<br/>confidence capped at 0.6]
+        Guard -->|pass| Conf[confidence score<br/>60% split quality + 25% model<br/>+ 15% retrieval]
+        Fallback --> Out
+        Conf --> Out[CoachAdvice<br/>guess, explanation, confidence,<br/>sources, mode, trace]
+    end
+
+    Out -->|suggestion + trace expander| UI
+    Agent -. every step .-> Log[(logs/coach.log)]
+
+    %% ---------- Testing / evaluation ----------
+    subgraph QA["Testing and human review"]
+        direction TB
+        Tests[pytest: 133 tests<br/>game rules + coach]
+        Eval[scripts/evaluate.py<br/>autoplay 320 games, fault injection,<br/>consistency, retrieval hit@k]
+        Faulty[ScriptedProvider<br/>simulated bad LLM output]
+        Review[docs/human_evaluation.md<br/>manual review of explanations]
+    end
+    Faulty -.->|injects faults| Guard
+    Tests -.-> Coach
+    Eval -.-> Coach
+    Review -.->|found 2 wording bugs, fixed| LLM
+    Log -.-> Review

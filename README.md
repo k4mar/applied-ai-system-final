@@ -1,443 +1,352 @@
-# 🎮 Game Glitch Investigator: The Impossible Guesser
+# 🎮🤖 Glitch Guesser AI Coach
 
-## 🚨 The Situation
+**An applied AI system that coaches players through a number-guessing game. It
+retrieves strategy notes, drafts advice with an LLM, checks that advice against
+the game's rules, and repairs it or falls back to an exact answer before the
+player ever sees it.**
 
-An AI was asked to build a simple "Number Guessing Game" using Streamlit. It wrote the
-code, ran away, and left behind a game that *looked* finished and was completely broken:
+AI110 Foundations of AI Engineering, Project 4 (Applied AI System) · Kamar Johnson
 
-- You couldn't reliably win.
-- The hints lied to you.
-- The secret number had commitment issues.
+## 📦 Base project
 
-None of it crashed on startup, which is what made it dangerous — every bug produced a
-confident wrong answer instead of a stack trace. This repo is the repaired version, plus
-the paper trail of how it was diagnosed.
+This project extends my **Module 1 project, _Game Glitch Investigator: The
+Impossible Guesser_**
+([original repo](https://github.com/k4mar/ai110-module1show-gameglitchinvestigator-starter)).
+That project started as a Streamlit number-guessing game an AI had written and left
+broken: the hints were backwards, the secret changed type between turns, scores went
+negative, and "New Game" froze the app. I diagnosed and fixed seven bugs and moved all
+the game rules into a testable `logic_utils.py` (83 tests). I also added Hot/Cold
+proximity hints, a guess-history sidebar and high scores. Its full write-up is preserved
+in [`docs/module1_original_README.md`](docs/module1_original_README.md) and
+[`reflection.md`](reflection.md).
+
+## 💡 What this version adds, and why it matters
+
+The repaired game told you *whether* a guess was too high or too low. It never helped
+you *play well*, and on Hard (1–200, 8 attempts) a single wasted guess makes a win
+impossible to guarantee. The **AI Coach** fixes that. Click **Ask AI Coach 🤖** and you
+get:
+
+- a **suggested next guess**,
+- a **plain-language explanation** grounded in a small strategy knowledge base,
+- a **confidence score**, and the **sources** it cited,
+- an expandable **agent trace** showing exactly how it decided.
+
+The interesting part is not the advice itself (binary search is simple). It is
+**making an LLM's advice trustworthy**:
+
+- The coach is structurally unable to see the secret.
+- Every draft is validated against exact game state.
+- A bad draft is sent back with the reasons it failed.
+- If the model still gets it wrong, or can't be reached, the player gets a safe,
+  exact answer and is told why.
+
+The same pattern applies to any setting where an LLM explains decisions that a
+deterministic system can check.
+
+**AI features used** (the project needs at least one):
+
+| Feature | Where | How it changes behaviour |
+|---|---|---|
+| **Retrieval-Augmented Generation** | `coach/retriever.py`, `knowledge/` | The model may only cite passages retrieved for *this* situation; citing anything else fails a guardrail |
+| **Agentic workflow** | `coach/agent.py` | plan → retrieve → generate → **check** → repair → fallback loop; the agent critiques its own draft |
+| **Reliability / testing system** | `coach/guardrails.py`, `coach/evaluation.py`, `scripts/evaluate.py` | Guardrails gate every answer; an evaluation harness measures win rate, fault catch rate, consistency and retrieval accuracy |
+
+## 🏗️ Architecture overview
+
+Source: [`diagrams/architecture.mmd`](diagrams/architecture.mmd) (GitHub renders the copy below).
+
+```mermaid
+flowchart TD
+    Player([👤 Player]) -->|types guess| UI[app.py<br/>Streamlit UI]
+    Player -->|clicks Ask AI Coach| UI
+    UI -->|parse_guess / check_guess| Logic[logic_utils.py<br/>game rules + secret]
+    Logic -->|hint: too high / too low / win| UI
+    UI -->|"GameObservation<br/>(guesses + hints only,<br/>NO secret)"| Agent
+
+    subgraph Coach["coach/ (AI Coach agent)"]
+        direction TB
+        Agent[agent.py<br/>CoachAgent loop] --> Plan[planner.py<br/>live interval, midpoint,<br/>attempts left, situation tags]
+        Plan -->|situation query| Ret[retriever.py<br/>BM25 search]
+        KB[(knowledge/*.md<br/>28 strategy passages)] --> Ret
+        Ret -->|top-3 passages| Prompt[llm.py<br/>build_prompt]
+        Plan -->|exact facts| Prompt
+        Prompt --> LLM{{LLM provider<br/>OpenAI gpt-4o-mini<br/>or offline rules}}
+        LLM -->|JSON draft| Guard[guardrails.py<br/>schema, in-interval, no repeat,<br/>no secret claim, real citations,<br/>confidence 0-1]
+        Guard -->|fail: error list| Repair[repair: send errors<br/>back to model, 1 retry]
+        Repair --> Prompt
+        Guard -->|fail twice or provider error| Fallback[fallback: planner midpoint<br/>confidence capped at 0.6]
+        Guard -->|pass| Conf[confidence score<br/>60% split quality + 25% model<br/>+ 15% retrieval]
+        Fallback --> Out
+        Conf --> Out[CoachAdvice<br/>guess, explanation, confidence,<br/>sources, mode, trace]
+    end
+
+    Out -->|suggestion + trace expander| UI
+    Agent -. every step .-> Log[(logs/coach.log)]
+
+    subgraph QA["Testing and human review"]
+        direction TB
+        Tests[pytest: 133 tests<br/>game rules + coach]
+        Eval[scripts/evaluate.py<br/>autoplay 320 games, fault injection,<br/>consistency, retrieval hit@k]
+        Faulty[ScriptedProvider<br/>simulated bad LLM output]
+        Review[docs/human_evaluation.md<br/>manual review of explanations]
+    end
+    Faulty -.->|injects faults| Guard
+    Tests -.-> Coach
+    Eval -.-> Coach
+    Review -.->|found 2 wording bugs, fixed| LLM
+    Log -.-> Review
+```
+
+**How data flows.**
+
+1. The player's guess goes through the original game rules, which own the secret.
+2. When the player asks for coaching, the app builds a `GameObservation` holding only
+   what the player has already seen: each guess and its hint.
+3. The **planner** folds those hints into the *live interval* (the numbers that can
+   still win), computes its midpoint, and tags the situation (`opening`, `behind`,
+   `wasted_guess`, `last_attempt`, ...).
+4. The tags become a **retrieval** query over 28 strategy passages.
+5. The **LLM** gets the exact facts plus the top 3 passages and must reply in a fixed
+   JSON schema.
+6. The **guardrails** check the reply against the planner's facts.
+7. On failure, the agent **repairs**: it sends the specific errors back to the model
+   for one retry.
+8. If the retry also fails, or the API errors, it **falls back** to the planner's
+   midpoint and says so.
+
+**Where humans and testing come in.**
+
+- The player sees the confidence score, the sources and the full trace, so a
+  suspicious suggestion can be checked.
+- Every step is logged to `logs/coach.log`.
+- `pytest` covers the rules and the coach.
+- `scripts/evaluate.py` injects faulty model output to prove the guardrails work.
+- A manual review ([`docs/human_evaluation.md`](docs/human_evaluation.md)) grades
+  explanation quality, which automated checks can't judge.
 
 ## 🛠️ Setup
 
-1. Install dependencies: `pip install -r requirements.txt`
-2. Run the app: `python -m streamlit run app.py`
-3. Run the tests: `pytest`
+Requires Python 3.10+.
 
-## 🎯 The Game's Purpose
+```bash
+git clone https://github.com/k4mar/applied-ai-system-final.git
+cd applied-ai-system-final
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-A single-player number guessing game. The app picks a secret number inside a range
-determined by the selected difficulty, and you have a limited number of guesses to find
-it. After each guess the game tells you whether you were too high or too low, and awards
-points for winning quickly. It's a small app on purpose — small enough that every bug in
-it is a bug you can reason about completely.
+**Run the game with the coach:**
 
-| Difficulty | Range | Attempts allowed | Guesses a perfect binary search needs |
-|------------|-------|------------------|----------------------------------------|
-| Easy | 1–20 | 6 | 5 |
-| Normal | 1–100 | 8 | 7 |
-| Hard | 1–200 | 8 | 8 |
+```bash
+python -m streamlit run app.py
+```
 
-Every difficulty is winnable with perfect play — that last column is enforced by a test,
-because an attempt budget that silently disagrees with its range is exactly the bug that
-made the original "impossible".
+**Choose the coach's model.** With no API key, the coach uses its built-in
+**offline provider**. Everything works and the results are reproducible. To use a
+real LLM:
 
-## 🐛 Bugs Found
+```bash
+export OPENAI_API_KEY=sk-...          # Windows PowerShell: $env:OPENAI_API_KEY="sk-..."
+export COACH_PROVIDER=openai          # optional: auto (default) | openai | offline
+export COACH_MODEL=gpt-4o-mini        # optional
+```
 
-Full reproduction steps, expected-vs-actual behaviour, and console output live in
-[`reflection.md`](reflection.md) section 1. Summary:
+With `COACH_PROVIDER=auto` the coach uses OpenAI whenever a key is set and falls back
+to offline otherwise. It logs a warning saying which one it chose, and the sidebar
+shows the active provider.
 
-| # | Bug | Root cause |
-|---|-----|------------|
-| 1 | Hints were backwards — guessing 60 against a secret of 50 said "📈 Go HIGHER!" | `check_guess` returned each outcome paired with the *opposite* advice string |
-| 2 | Hints were wrong in a second, sneakier way — a guess of 9 was called too high | `app.py` coerced the secret to `str()` on every even attempt; `guess > secret` raised `TypeError`, and a bare `except TypeError` "recovered" by comparing strings — `"9" > "50"` is `True` |
-| 3 | Score went haywire and negative | `update_score` paid "Too High" **+5** on even attempts and **−5** on odd ones, so the reward depended on *when* you guessed; nothing clamped the total |
-| 4 | "New Game" never started a new game | The handler reset `attempts` and `secret` but not `score`, `status` or `history`. With `status` still `"won"`, the next rerun hit `st.stop()` — clicking New Game was what kept the app stuck |
-| 5 | Changing difficulty made the game unwinnable | The secret was generated once and never reseeded. Switching to Easy (1–20) left the old secret (87) in place. "Hard" was also *narrower* (1–50) than Normal (1–100) |
-| 6 | Attempt counting was off by one and punished typos | `attempts` started at `1`, so a fresh Normal game advertised 7 of its 8 attempts; `attempts += 1` ran *before* input validation, so `abc` burned a turn |
-| 7 | `pytest` could not run at all | Every function in `logic_utils.py` was a `NotImplementedError` stub, and bare `pytest` failed at collection with `ModuleNotFoundError: No module named 'logic_utils'` |
+**Run the tests, the evaluation and the CLI:**
 
-## 🔧 Fixes Applied
+```bash
+pytest                                             # 133 tests
+python scripts/evaluate.py                         # writes docs/evaluation_report.md
+python -m coach.cli --history "60:high,20:low"     # advice for a position
+python -m coach.cli --difficulty Hard --secret 137 --autoplay   # coach plays a full round
+python scripts/guardrail_demo.py --list            # show the fault types you can inject
+bash scripts/record_sample_runs.sh                 # regenerate docs/sample_runs/
+```
 
-**Refactor first.** All four functions moved out of `app.py` into `logic_utils.py`, which
-imports no Streamlit. `app.py` is now UI only: read widgets → call logic → render. That
-split is what made the rest testable.
+## 💬 Sample interactions
 
-**The structural fix for bug 1.** `check_guess` used to return an `(outcome, message)`
-tuple, so the rule and its wording were hand-written side by side and could disagree. It
-now returns just an outcome constant (`WIN` / `TOO_HIGH` / `TOO_LOW`), and a new
-`hint_message(outcome)` looks the advice up from it. "Too High" can no longer be paired
-with "go HIGHER" because nobody writes that pairing by hand any more.
+These are real outputs, copied from [`docs/sample_runs/`](docs/sample_runs/), which also
+holds the full traces and a sample of `logs/coach.log`. They use the offline provider, so
+you get exactly the same output when you run the same commands.
 
-Everything else:
-
-- **Bug 2** — the secret is passed through as the `int` it always was. The bare
-  `except TypeError` is gone; `_to_int()` raises loudly on junk instead of falling back
-  to a string comparison. A wrong hint is worse than a crash.
-- **Bug 3** — both wrong outcomes cost the same fixed 5 points, the total floors at 0,
-  and the win bonus is `100 − 10 × (attempts_used − 1)` with a floor of 10, so a
-  first-guess win is worth the full 100 (the old formula double-counted the
-  already-incremented counter and paid 80).
-- **Bug 4** — one `start_new_game()` function resets secret, attempts, score, status and
-  history, so no caller can forget a field.
-- **Bug 5** — changing difficulty starts a fresh round in the new range. Hard is now
-  1–200, genuinely wider than Normal, and two tests check every difficulty is winnable.
-- **Bug 6** — `attempts` starts at 0 and is only incremented *after* `parse_guess`
-  succeeds, so invalid input is free. The status banner uses the real range and is
-  rendered into an `st.empty()` slot at the *end* of the script, so it reflects this
-  run's guess instead of lagging a rerun behind.
-- **Bug 7** — `conftest.py` and `pytest.ini` put the repo root on `sys.path`, so
-  `pytest`, `pytest tests/` and `python -m pytest` all work from any directory.
-- **Extra hardening** — `parse_guess` now range-checks the guess, rejects fractional
-  input instead of silently truncating `"3.9"` to `3`, and no longer dies with
-  `OverflowError` on `"1e999"` (a crash my own fix introduced, caught by a test).
-
-
-## ✨ Features Added (beyond the repairs)
-
-Three player-facing features were built on top of the repaired game. All of their logic
-lives in `logic_utils.py` as pure functions, so each one is unit tested.
-
-**🌡️ Hot/Cold proximity feedback** — `proximity_label()` and `proximity_trend()`, shown
-under the direction hint after every guess. The direction hint says *which way* to move;
-the proximity label says *how far is left*; the trend says whether the last guess was an
-improvement (`warmer 🔺` / `colder 🔻` / `same ➡️`). The bands are normalised against the
-width of the difficulty's range rather than being absolute distances, so "Hot" means the
-same thing on Easy (1–20) as on Hard (1–200): being 10 away is most of the board on one
-and a near miss on the other.
-
-| Distance as a fraction of the range | Label |
-|---|---|
-| exactly 0 | 🎯 Bullseye |
-| ≤ 0.05 | 🔥 Blazing hot |
-| ≤ 0.15 | ♨️ Hot |
-| ≤ 0.30 | 🌤️ Warm |
-| ≤ 0.50 | 🧊 Cold |
-| > 0.50 | ❄️ Freezing |
-
-**📜 Guess History sidebar** — `render_sidebar_history()` in `app.py`, newest guess first,
-each row showing a direction arrow, the guess, its proximity label and its outcome.
-
-**🏆 High Score tracker** — `update_high_scores()` and `format_high_scores()`, rendered by
-`render_sidebar_high_scores()`. Records persist across rounds for the whole session (a
-deliberate exception to `start_new_game()`, which resets everything else), are kept
-per difficulty, and are only beaten by a higher score or by an equal score in fewer
-attempts. A "🏆 New *difficulty* high score!" banner fires only on a genuine improvement,
-and a "Reset high scores" button is the only way to clear the table.
-
-**📊 Round summary table** — `build_session_table()`, rendered by `render_round_summary()`
-when a round ends: one row per guess with its result, how far off it was, and its
-proximity label.
-
-## 📸 Demo Walkthrough
-
-A full game on **Normal** difficulty (range 1–100, 8 attempts, secret = 50, revealed via
-the "Developer Debug Info" expander):
-
-1. App loads. The banner reads **"Guess a number between 1 and 100. Attempts left: 8"** —
-   all 8 attempts, not 7. The sidebar shows "No guesses yet this round."
-2. User enters `60` → **"📉 Too high -- go LOWER!"** plus **"♨️ Hot"**. Attempts left drops
-   to 7, score 0. The guess appears in the sidebar history.
-3. User enters `abc` → **"That is not a number."** Attempts left stays at **7** — the typo
-   is free.
-4. User enters `3.9` → **"Whole numbers only -- no decimals."** Still 7 attempts left; the
-   game does not quietly score it as a guess of 3.
-5. User enters `500` → **"Out of range. Guess between 1 and 100."** Still 7 left.
-6. User enters `9` → **"📈 Too low -- go HIGHER!"** plus **"🧊 Cold (colder than your last
-   guess 🔻)"** — correct, where the original called 9 *too high* because it compared
-   `"9" > "50"` as text. 6 attempts left.
-7. User enters `40` → **"📈 Too low -- go HIGHER!"** plus **"♨️ Hot (warmer than your last
-   guess 🔺)"**. 5 attempts left, score still 0 (wrong guesses cost 5 but the score floors
-   at 0 rather than going negative).
-8. User enters `50` → 🎈 balloons, **"You won in 4 attempts! The secret was 50. Final
-   score: 70"**, **"🏆 New Normal high score!"**, and the 📊 Round summary table appears.
-   The game ends and further guessing is blocked.
-9. User clicks **New Game 🔁** → a fresh secret, attempts back to 8, **score back to 0**,
-   status back to playing, history cleared — but the 🏆 high score survives. The original
-   left status at `"won"` here and the app became permanently unplayable.
-10. User switches difficulty to **Easy** → **"Difficulty changed to Easy. New game
-    started."** and the banner becomes **"Guess a number between 1 and 20. Attempts left:
-    6"** with a secret reseeded inside 1–20. The original kept the old out-of-range secret
-    and still claimed the range was 1–100.
-11. Playing Easy and using all 6 attempts without finding it → **"Out of attempts! The
-    secret was 7. Score: 0"**, the round summary table appears, and the game stops until
-    New Game is clicked.
-
-### Recorded terminal trace of that session
-
-Not a description — this is the actual run, driven through the Streamlit runtime with the
-secret pinned, printing real `st.session_state` after every click:
+**1. Normal position: after "60 too high" and "20 too low"**
 
 ```text
-$ python -m streamlit run app.py      # REPAIRED CODE
-
-### Normal difficulty, secret pinned to 50
-[page load, before any guess]
-    session_state: secret=50  attempts=0  score=0  status=playing
-    INFO    Guess a number between 1 and 100. Attempts left: 8
-[typed 60 -> Submit Guess]
-    session_state: secret=50  attempts=1  score=0  status=playing
-    INFO    Guess a number between 1 and 100. Attempts left: 7
-    INFO    Hot
-    HINT    Too high -- go LOWER!
-[typed abc -> Submit Guess]
-    session_state: secret=50  attempts=1  score=0  status=playing
-    INFO    Guess a number between 1 and 100. Attempts left: 7
-    ERROR   That is not a number.
-[typed 3.9 -> Submit Guess]
-    session_state: secret=50  attempts=1  score=0  status=playing
-    ERROR   Whole numbers only -- no decimals.
-[typed 500 -> Submit Guess]
-    session_state: secret=50  attempts=1  score=0  status=playing
-    ERROR   Out of range. Guess between 1 and 100.
-[typed 9 -> Submit Guess]
-    session_state: secret=50  attempts=2  score=0  status=playing
-    INFO    Guess a number between 1 and 100. Attempts left: 6
-    INFO    Cold (colder than your last guess 🔻)
-    HINT    Too low -- go HIGHER!
-[typed 40 -> Submit Guess]
-    session_state: secret=50  attempts=3  score=0  status=playing
-    INFO    Guess a number between 1 and 100. Attempts left: 5
-    INFO    Hot (warmer than your last guess 🔺)
-    HINT    Too low -- go HIGHER!
-[typed 50 -> Submit Guess]
-    session_state: secret=50  attempts=4  score=70  status=won
-    INFO    Guess a number between 1 and 100. Attempts left: 4
-    HINT    Correct!
-    SUCCESS You won in 4 attempts! The secret was 50. Final score: 70
-    SUCCESS New Normal high score!
-
-    Round summary table:
-       #  Guess   Result  Off by  Proximity
-       1     60 Too High      10     ♨️ Hot
-       2      9  Too Low      41     🧊 Cold
-       3     40  Too Low      10     ♨️ Hot
-       4     50      Win       0 🎯 Bullseye
-      Difficulty  Best score  Attempts
-          Normal          70         4
-
-### Sidebar after the round
-    HISTORY 🎯 **50** — 🎯 Bullseye   <small>guess 4 · Win</small>
-    HISTORY ⬆️ **40** — ♨️ Hot   <small>guess 3 · Too Low</small>
-    HISTORY ⬆️ **9** — 🧊 Cold   <small>guess 2 · Too Low</small>
-    HISTORY ⬇️ **60** — ♨️ Hot   <small>guess 1 · Too High</small>
-
-### Clicking New Game after a win
-[clicked New Game]
-    session_state: secret=96  attempts=0  score=0  status=playing
-    INFO    Guess a number between 1 and 100. Attempts left: 8
-
-### Switching difficulty mid-game (Easy is 1-20)
-[switched difficulty to Easy]
-    session_state: secret=12  attempts=0  score=0  status=playing
-    INFO    Difficulty changed to Easy. New game started.
-    INFO    Guess a number between 1 and 20. Attempts left: 6
-    secret 12 is inside the Easy range 1-20  ✔
+$ python -m coach.cli --difficulty Normal --history 60:high,20:low
+(provider: offline-rules; log: coach.log)
+Normal: history = [(60, 'Too High'), (20, 'Too Low')]
+  live interval   : 21-59 (39 numbers), attempts left 6, win guaranteed: True
+  coach suggests  : 40
+  explanation     : 20 was too low, so the secret is above it. 39 numbers remain (21-59); 40 splits them in half. Halving every turn finishes within 6 guesses.
+  confidence      : 0.99
+  sources         : reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out, binary_search#guess-the-middle-of-what-is-left
+  mode / provider : accepted / offline-rules
 ```
 
-Two notes on reading that trace. The proximity lines show as `INFO Hot` rather than
-`INFO ♨️ Hot` because `st.info` detects a leading emoji and moves it into the callout's
-icon slot — the emoji is rendered, just not in the message text, which is why it *is*
-visible in the sidebar and table rows. And the score reads 0 after three wrong guesses
-rather than −15: wrong guesses cost 5 but the total floors at 0, then the win on attempt
-4 pays 100 − 10 × 3 = 70.
+**2. A player who wasted guesses on Hard: the coach is honest that a win is no longer guaranteed**
 
-Compare with the [pre-fix trace in `reflection.md`](reflection.md#1-what-was-broken-when-you-started),
-recorded the same way against the same pinned secret.
-
-## 🧪 Test Results
-
-3 starter tests (kept verbatim) plus 80 added, 83 total. Each *regression* assertion was
-also run against the **original buggy functions** to confirm it actually fails there — a
-test that passes against the bug it claims to cover is worthless. 10 of 10 do.
-
-```
-$ pytest
-============================= test session starts ==============================
-platform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0
-rootdir: /home/user/ai110-module1show-gameglitchinvestigator-starter
-configfile: pytest.ini
-collected 83 items
-
-tests/test_game_logic.py ...............................................  [100%]
-
-============================== 83 passed in 0.11s ==============================
+```text
+$ python -m coach.cli --difficulty Hard --history 100:low,120:low,110:low,105:low
+Hard: history = [(100, 'Too Low'), (120, 'Too Low'), (110, 'Too Low'), (105, 'Too Low')]
+  live interval   : 121-200 (80 numbers), attempts left 4, win guaranteed: False
+  coach suggests  : 160
+  explanation     : 105 was already ruled out, so it taught nothing new. The secret is still in 121-200 (80 numbers); 160 splits them in half. Stay inside the interval -- repeats and ruled-out numbers cost a turn. A win is no longer guaranteed (80 numbers, 4 attempts), but the midpoint is still your best odds.
+  confidence      : 0.92
+  sources         : recovery#after-a-wasted-guess, reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out
+  mode / provider : accepted / offline-rules
 ```
 
-<details>
-<summary><strong>Full <code>pytest -v</code> output (83 tests)</strong></summary>
+**3. Guardrails catching a model that "knows" the secret, then repairing it**
 
-```
-============================= test session starts ==============================
-platform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /root/.local/share/uv/tools/pytest/bin/python
-cachedir: .pytest_cache
-rootdir: /home/user/ai110-module1show-gameglitchinvestigator-starter
-configfile: pytest.ini
-testpaths: tests
-collecting ... collected 83 items
-
-tests/test_game_logic.py::test_winning_guess PASSED                      [  1%]
-tests/test_game_logic.py::test_guess_too_high PASSED                     [  2%]
-tests/test_game_logic.py::test_guess_too_low PASSED                      [  3%]
-tests/test_game_logic.py::test_too_high_hint_tells_the_player_to_go_lower PASSED [  4%]
-tests/test_game_logic.py::test_too_low_hint_tells_the_player_to_go_higher PASSED [  6%]
-tests/test_game_logic.py::test_win_hint_is_congratulations_not_a_direction PASSED [  7%]
-tests/test_game_logic.py::test_comparison_is_numeric_not_lexicographic[9-50-Too Low0] PASSED [  8%]
-tests/test_game_logic.py::test_comparison_is_numeric_not_lexicographic[100-50-Too High0] PASSED [  9%]
-tests/test_game_logic.py::test_comparison_is_numeric_not_lexicographic[9-50-Too Low1] PASSED [ 10%]
-tests/test_game_logic.py::test_comparison_is_numeric_not_lexicographic[100-50-Too High1] PASSED [ 12%]
-tests/test_game_logic.py::test_win_is_detected_even_when_the_secret_arrives_as_a_string PASSED [ 13%]
-tests/test_game_logic.py::test_non_numeric_input_raises_instead_of_guessing PASSED [ 14%]
-tests/test_game_logic.py::test_wrong_guesses_score_the_same_regardless_of_attempt_parity PASSED [ 15%]
-tests/test_game_logic.py::test_too_high_and_too_low_cost_the_same[1] PASSED [ 16%]
-tests/test_game_logic.py::test_too_high_and_too_low_cost_the_same[2] PASSED [ 18%]
-tests/test_game_logic.py::test_too_high_and_too_low_cost_the_same[3] PASSED [ 19%]
-tests/test_game_logic.py::test_too_high_and_too_low_cost_the_same[4] PASSED [ 20%]
-tests/test_game_logic.py::test_wrong_guesses_never_push_the_score_negative PASSED [ 21%]
-tests/test_game_logic.py::test_a_first_guess_win_is_worth_full_points PASSED [ 22%]
-tests/test_game_logic.py::test_win_points_decay_with_each_attempt_used PASSED [ 24%]
-tests/test_game_logic.py::test_unknown_outcome_leaves_the_score_untouched PASSED [ 25%]
-tests/test_game_logic.py::test_harder_difficulty_means_a_wider_range PASSED [ 26%]
-tests/test_game_logic.py::test_unknown_difficulty_falls_back_to_normal_instead_of_crashing PASSED [ 27%]
-tests/test_game_logic.py::test_every_difficulty_is_winnable_by_binary_search[Easy] PASSED [ 28%]
-tests/test_game_logic.py::test_every_difficulty_is_winnable_by_binary_search[Hard] PASSED [ 30%]
-tests/test_game_logic.py::test_every_difficulty_is_winnable_by_binary_search[Normal] PASSED [ 31%]
-tests/test_game_logic.py::test_binary_search_actually_wins_every_secret_in_range[Easy] PASSED [ 32%]
-tests/test_game_logic.py::test_binary_search_actually_wins_every_secret_in_range[Hard] PASSED [ 33%]
-tests/test_game_logic.py::test_binary_search_actually_wins_every_secret_in_range[Normal] PASSED [ 34%]
-tests/test_game_logic.py::test_blank_input_is_rejected[] PASSED          [ 36%]
-tests/test_game_logic.py::test_blank_input_is_rejected[   ] PASSED       [ 37%]
-tests/test_game_logic.py::test_blank_input_is_rejected[None] PASSED      [ 38%]
-tests/test_game_logic.py::test_non_numeric_input_is_rejected[abc] PASSED [ 39%]
-tests/test_game_logic.py::test_non_numeric_input_is_rejected[fifty] PASSED [ 40%]
-tests/test_game_logic.py::test_non_numeric_input_is_rejected[0x1f] PASSED [ 42%]
-tests/test_game_logic.py::test_non_numeric_input_is_rejected[--7] PASSED [ 43%]
-tests/test_game_logic.py::test_non_numeric_input_is_rejected[1,000] PASSED [ 44%]
-tests/test_game_logic.py::test_non_numeric_input_is_rejected[nan] PASSED [ 45%]
-tests/test_game_logic.py::test_full_width_digits_are_accepted_because_python_int_accepts_them PASSED [ 46%]
-tests/test_game_logic.py::test_absurdly_large_input_is_rejected_without_crashing[1e999] PASSED [ 48%]
-tests/test_game_logic.py::test_absurdly_large_input_is_rejected_without_crashing[-1e999] PASSED [ 49%]
-tests/test_game_logic.py::test_surrounding_whitespace_is_tolerated PASSED [ 50%]
-tests/test_game_logic.py::test_whitespace_only_input_asks_for_a_guess_rather_than_scolding PASSED [ 51%]
-tests/test_game_logic.py::test_fractional_guess_is_rejected_not_silently_truncated PASSED [ 53%]
-tests/test_game_logic.py::test_whole_number_written_as_a_decimal_is_accepted PASSED [ 54%]
-tests/test_game_logic.py::test_negative_guess_is_accepted_when_no_range_is_supplied PASSED [ 55%]
-tests/test_game_logic.py::test_out_of_range_guesses_are_rejected_when_a_range_is_supplied[0] PASSED [ 56%]
-tests/test_game_logic.py::test_out_of_range_guesses_are_rejected_when_a_range_is_supplied[101] PASSED [ 57%]
-tests/test_game_logic.py::test_out_of_range_guesses_are_rejected_when_a_range_is_supplied[-5] PASSED [ 59%]
-tests/test_game_logic.py::test_out_of_range_guesses_are_rejected_when_a_range_is_supplied[999] PASSED [ 60%]
-tests/test_game_logic.py::test_guesses_on_and_inside_the_range_boundaries_are_accepted[1] PASSED [ 61%]
-tests/test_game_logic.py::test_guesses_on_and_inside_the_range_boundaries_are_accepted[50] PASSED [ 62%]
-tests/test_game_logic.py::test_guesses_on_and_inside_the_range_boundaries_are_accepted[100] PASSED [ 63%]
-tests/test_game_logic.py::test_minimum_attempts_needed[1-1-1] PASSED     [ 65%]
-tests/test_game_logic.py::test_minimum_attempts_needed[1-2-1] PASSED     [ 66%]
-tests/test_game_logic.py::test_minimum_attempts_needed[1-8-3] PASSED     [ 67%]
-tests/test_game_logic.py::test_minimum_attempts_needed[1-20-5] PASSED    [ 68%]
-tests/test_game_logic.py::test_minimum_attempts_needed[1-100-7] PASSED   [ 69%]
-tests/test_game_logic.py::test_minimum_attempts_needed[1-200-8] PASSED   [ 71%]
-tests/test_game_logic.py::test_minimum_attempts_matches_log2_for_every_difficulty PASSED [ 72%]
-tests/test_game_logic.py::test_exact_guess_is_a_bullseye PASSED          [ 73%]
-tests/test_game_logic.py::test_proximity_gets_colder_as_the_guess_moves_away PASSED [ 74%]
-tests/test_game_logic.py::test_the_coldest_band_is_reachable PASSED      [ 75%]
-tests/test_game_logic.py::test_every_band_is_reachable_for_some_guess PASSED [ 77%]
-tests/test_game_logic.py::test_proximity_is_symmetric_above_and_below_the_secret PASSED [ 78%]
-tests/test_game_logic.py::test_proximity_is_relative_to_the_difficulty_range PASSED [ 79%]
-tests/test_game_logic.py::test_proximity_does_not_divide_by_zero_on_a_degenerate_range PASSED [ 80%]
-tests/test_game_logic.py::test_proximity_trend[None-40-] PASSED          [ 81%]
-tests/test_game_logic.py::test_proximity_trend[20-40-warmer] PASSED      [ 83%]
-tests/test_game_logic.py::test_proximity_trend[45-20-colder] PASSED      [ 84%]
-tests/test_game_logic.py::test_proximity_trend[40-60-same] PASSED        [ 85%]
-tests/test_game_logic.py::test_session_table_has_one_row_per_guess_in_play_order PASSED [ 86%]
-tests/test_game_logic.py::test_session_table_is_empty_for_a_round_with_no_guesses PASSED [ 87%]
-tests/test_game_logic.py::test_first_result_always_sets_the_record PASSED [ 89%]
-tests/test_game_logic.py::test_a_higher_score_replaces_the_record PASSED [ 90%]
-tests/test_game_logic.py::test_a_lower_score_does_not_replace_the_record PASSED [ 91%]
-tests/test_game_logic.py::test_an_equal_score_in_fewer_attempts_wins_the_tie PASSED [ 92%]
-tests/test_game_logic.py::test_an_equal_score_in_more_attempts_does_not_win_the_tie PASSED [ 93%]
-tests/test_game_logic.py::test_each_difficulty_keeps_its_own_record PASSED [ 95%]
-tests/test_game_logic.py::test_update_high_scores_does_not_mutate_its_input PASSED [ 96%]
-tests/test_game_logic.py::test_update_high_scores_tolerates_none PASSED  [ 97%]
-tests/test_game_logic.py::test_high_scores_are_formatted_best_first PASSED [ 98%]
-tests/test_game_logic.py::test_formatting_an_empty_high_score_table_gives_no_rows PASSED [100%]
-
-============================== 83 passed in 0.08s ==============================
+```text
+$ python scripts/guardrail_demo.py claims_to_know_secret
+Injected fault: claims_to_know_secret (hallucinated / leaked secret)
+Position: Normal, history [(60, 'Too High'), (20, 'Too Low')]
+  model answer #1: {"suggested_guess": 40, "explanation": "The secret number is 42, trust me.", ...}
+  model answer #2: {"suggested_guess": 40, "explanation": "20 was too low, so the secret is above it. ...", ...}
+  coach suggests  : 40
+  confidence      : 0.89
+  mode / provider : repaired / scripted:claims_to_know_secret
+  guardrail errors: ['explanation claims to know the secret number; the coach cannot know it.']
+  agent trace     :
+    - plan      {'interval': '21-59', 'candidates': 39, 'attempts_left': 6, 'optimal': 40, ...}
+    - retrieve  {'query': 'guess middle what is left live interval halve too low ...', 'passages': [...]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': False, 'errors': ['explanation claims to know the secret number; the coach cannot know it.']}
+    - repair    {'feedback': ['explanation claims to know the secret number; the coach cannot know it.']}
+    - generate  {'attempt': 2}
+    - check     {'attempt': 2, 'ok': True, 'errors': []}
 ```
 
-</details>
+(The model answers are trimmed with `...` for width; the untrimmed run is in
+[`07_guardrail_secret_leak.txt`](docs/sample_runs/07_guardrail_secret_leak.txt).)
 
-The two tests worth singling out are
-`test_binary_search_actually_wins_every_secret_in_range` and
-`test_every_difficulty_is_winnable_by_binary_search`. The first plays a complete perfect
-game against *every* possible secret in *every* difficulty, navigating only by the hints
-`check_guess` returns — if the hints were inverted, the search would never converge. The
-second asserts no difficulty can advertise fewer attempts than `ceil(log2(range))`.
-Between them they make "the game is impossible" a test failure rather than a bug report.
+**4. The coach playing a full Hard round, secret pinned to 137**
 
-## 🧹 Code Style
-
-`flake8`, `ruff` and `black --check` all pass clean on every file. Full before/after
-output is committed in [`docs/lint_report.txt`](docs/lint_report.txt).
-
-```
-$ flake8 --max-line-length=88 app.py logic_utils.py conftest.py tests/
-(no output -- 0 violations)
-
-$ ruff check --line-length=88 app.py logic_utils.py conftest.py tests/
-All checks passed!
-
-$ black --check --line-length=88 app.py logic_utils.py conftest.py tests/
-All done! ✨ 🍰 ✨
-4 files would be left unchanged.
+```text
+$ python -m coach.cli --difficulty Hard --secret 137 --autoplay --no-trace
+[turn 1]  coach suggests 100  >> player guesses 100 -> Too Low
+[turn 2]  coach suggests 150  >> player guesses 150 -> Too High
+[turn 3]  coach suggests 125  >> player guesses 125 -> Too Low
+[turn 4]  coach suggests 137  >> player guesses 137 -> Win
+RESULT: won in 4 of 8 attempts
 ```
 
-Every function in `logic_utils.py` carries a docstring; the public ones use Google-style
-`Args:`/`Returns:` sections.
+(Condensed to one line per turn; the full output with explanations is in
+[`05_autoplay_hard.txt`](docs/sample_runs/05_autoplay_hard.txt).)
 
-## 📝 Document Your Experience
+In the Streamlit app the same advice appears under **🤖 AI Coach**: a green "Suggested
+next guess" box, the explanation, a confidence bar, the cited sources and a "How the
+coach decided" expander with the trace. Advice clears itself as soon as you make another
+guess, so it can never be about an old position.
 
-- [x] **Describe the game's purpose.** See [The Game's Purpose](#-the-games-purpose).
-- [x] **Detail which bugs you found.** See [Bugs Found](#-bugs-found), with a recorded
-      pre-fix terminal trace and an 11-row reproduction log in
-      [`reflection.md`](reflection.md) section 1.
-- [x] **Explain what fixes you applied.** See [Fixes Applied](#-fixes-applied); every fix
-      also carries a `# FIX:` comment at its location in the code.
+## 🧭 Design decisions and trade-offs
 
-## 🗂️ Project Layout
+- **The coach never receives the secret.** `GameObservation` has no secret field, and a
+  test asserts that. I could have tried to *prompt* the model not to reveal the secret,
+  but a structural boundary can't be talked out of its rules. The trade-off is a little
+  plumbing: the app computes each hint and passes the hints along, not the secret.
+- **Exact maths in code, wording from the model.** The planner computes the live
+  interval, the midpoint and whether a win is still guaranteed. The LLM is used for what
+  it is good at, explaining, and is *checked* against the planner. I didn't trust the
+  model to do interval arithmetic reliably; the fault-injection results show why that
+  check has to exist.
+- **BM25 over a small markdown knowledge base, not a vector database.** With 28 short
+  passages, keyword search is deterministic, needs no embedding API, and is easy to
+  test. Its accuracy is *measured* (7/7 hit@3, 5/7 hit@1) rather than assumed. The
+  trade-off: synonyms that aren't in the notes won't match, which is why the planner
+  writes queries in the knowledge base's own vocabulary.
+- **One repair attempt, then fallback.** Feeding the guardrail errors back gives the
+  model one chance to fix itself, which is the agentic part. More retries add latency
+  and cost for diminishing returns, and the fallback is always correct, so one retry
+  felt like the right balance.
+- **An offline provider alongside OpenAI.** It makes the project reproducible for a
+  grader without an API key, and it lets 320 full games and the fault experiments run
+  in under a second. I name it plainly as rule-based (`offline-rules`, not "AI") in the
+  UI, the logs and the docs, so nobody mistakes its output for LLM output.
+- **A confidence score the model can't inflate.** 60% of the score is *split quality*
+  (how evenly the suggested guess halves the interval, computed by the planner). Only 25%
+  is the model's self-reported confidence, clamped to 0–1. Fallback answers are capped
+  at 0.6. Self-reported LLM confidence is poorly calibrated, so it gets a minority vote.
+
+## 🧪 Testing summary
+
+| Check | Result |
+|---|---|
+| `pytest` (83 original game tests + 50 coach tests) | **133 / 133 passed** |
+| Autoplay: follow the coach every turn, every secret, every difficulty | **320 / 320 games won**, worst case 8/8 attempts on Hard, 7/8 on Normal |
+| Fault injection: bad model output caught on first check | **11 / 11** |
+| Fault injection: final advice still safe, with and without repair | **24 / 24** |
+| Consistency: same advice for the same position, 5 repeats | **4 / 4** positions |
+| Retrieval: expected passage in top 3 / ranked first | **7 / 7** / **5 / 7** |
+| Manual review of explanations | **6 / 8 → 8 / 8** after fixes |
+| `flake8`, `ruff`, `black --check` | clean ([`11_lint.txt`](docs/sample_runs/11_lint.txt)) |
+
+Full tables: [`docs/evaluation_report.md`](docs/evaluation_report.md) and
+[`docs/human_evaluation.md`](docs/human_evaluation.md).
+
+**What worked.** The guardrails caught every injected fault, from invalid JSON and
+out-of-range guesses to fake citations, a hallucinated secret and an API crash. In
+every case the player still got a correct move. The random-history test plays 300
+positions from a *careless* player and confirms the planner never rules out the real
+secret.
+
+**What didn't, and what I learned.**
+
+- A unit test caught a **stemming bug** in my retriever: "guesses" became "guesse" and
+  stopped matching "guess".
+- **Manual review found two problems no automated check flagged.** A solved position
+  said "within 1 guesses", and after a wasted guess the explanation reasoned from that
+  wasted guess ("1 was too low, so the secret is above it"). That is true but useless
+  to a player. Both are fixed and pinned by regression tests.
+- Retrieval ranks the ideal passage first only 5/7 times. In the other two cases it is
+  in the top 3, which is what the prompt uses.
+- **Limits of these numbers.** They are measured on the offline provider. The same
+  harness runs against the live model (`python scripts/evaluate.py --provider openai`),
+  but I have not committed those numbers: they vary run to run and need an API key.
+
+## 🪞 Reflection
+
+The biggest thing this project taught me is that an AI feature is only as trustworthy as
+what checks it. The original Module 1 game was "AI-written code that looked finished";
+an LLM coach that sounds confident is the same risk in a new form. So I designed the
+system so the parts that must be *right* (the interval, the secret, the move) are
+computed by code. The model's job is to *explain*, and its output is verified before
+anyone sees it.
+
+The second lesson was about testing. My automated tests proved the advice was safe, but
+it took reading the explanations as a player would to notice they were sometimes
+misleading. Responsible-AI reflection (how I worked with AI, what I accepted and
+rejected, biases and limitations) is in [`model_card.md`](model_card.md).
+
+## 🗂️ Project layout
 
 ```
-app.py                     Streamlit UI only -- widgets, session state, rendering
-logic_utils.py             All game rules. No Streamlit import, so it is unit testable
-conftest.py                Puts the repo root on sys.path so `pytest` can import logic_utils
-pytest.ini                 Anchors pytest's rootdir
-tests/test_game_logic.py   3 starter tests + 80 added
-docs/lint_report.txt       flake8 / ruff / black output, before and after
-reflection.md              Pre-fix terminal trace, bug reproduction log, AI write-up
-ai_interactions.md         Stretch-feature log (agent workflow, test generation, linting)
+app.py                     Streamlit UI: game + AI Coach panel
+logic_utils.py             Game rules (owns the secret). No Streamlit import
+coach/
+  planner.py               Live interval, midpoint, situation tags. Never sees the secret
+  retriever.py             BM25 over knowledge/*.md
+  llm.py                   Prompt builder, OpenAI provider, offline provider
+  guardrails.py            Validates every model answer
+  agent.py                 plan -> retrieve -> generate -> check -> repair -> fallback
+  evaluation.py            Autoplay, fault injection, consistency, retrieval experiments
+  logging_setup.py         logs/coach.log
+  cli.py                   Command-line coach for demos and logs
+knowledge/                 7 strategy notes, 28 passages (the RAG corpus)
+scripts/evaluate.py        Runs the evaluation, writes docs/evaluation_report.md
+scripts/guardrail_demo.py  Inject one model fault and watch the agent handle it
+scripts/record_sample_runs.sh  Regenerates docs/sample_runs/
+tests/test_game_logic.py   83 tests from Module 1
+tests/test_coach.py        50 coach tests
+diagrams/architecture.mmd  System diagram (Mermaid source)
+assets/                    Images for this README
+docs/                      Evaluation report, manual review, sample runs, Module 1 docs
+model_card.md              Responsible-AI reflection
+reflection.md, ai_interactions.md   Module 1 write-ups (kept for history)
 ```
-
-## 🚀 Stretch Features
-
-- [x] **Challenge 1: Advanced Edge-Case Testing** — the suite covers blank and
-      whitespace-only input, non-numeric input, fractional and decimal-but-whole guesses,
-      negative numbers, range boundaries (1 / 50 / 100 accepted; 0 / 101 / −5 / 999
-      rejected), `"1e999"` overflow, full-width Unicode digits, unknown difficulties,
-      unknown score outcomes, proximity-band boundaries, high-score tie-breaking and
-      input immutability, plus an exhaustive binary-search playthrough of every secret in
-      every difficulty. Terminal output is in [Test Results](#-test-results);
-      per-case prompts and rationale are in [`ai_interactions.md`](ai_interactions.md)
-      (SF7).
-- [x] **Challenge 2: Feature Expansion via Agent Mode** — 🏆 High Score tracker and
-      📜 Guess History sidebar, both fully functional and unit tested. See
-      [Features Added](#-features-added-beyond-the-repairs); the agent workflow, files
-      modified and manual corrections are documented in
-      [`ai_interactions.md`](ai_interactions.md) (SF8).
-- [x] **Challenge 3: Professional Documentation and Style** — docstrings on every
-      function in `logic_utils.py`, and `flake8` / `ruff` / `black --check` all clean.
-      See [Code Style](#-code-style), evidence in
-      [`docs/lint_report.txt`](docs/lint_report.txt), prompts and applied changes in
-      [`ai_interactions.md`](ai_interactions.md) (SF9).
-- [x] **Challenge 4: Enhanced Game UI and Formatting** — 🌡️ Hot/Cold proximity labels with
-      a warmer/colder trend, emoji-coded history rows, and a 📊 round summary table. See
-      [Features Added](#-features-added-beyond-the-repairs) for the functions involved
-      (`proximity_label`, `proximity_trend`, `build_session_table`,
-      `render_sidebar_history`, `render_round_summary`).
-- [ ] **Challenge 5: AI Model or Prompt Comparison** — [`ai_interactions.md`](ai_interactions.md)
-      (SF11) records a genuine comparison of two *prompting strategies* run against the
-      same model. A true two-**model** comparison is not claimed here, because only one
-      model was available during this work and inventing another model's output would
-      make the log fiction.
