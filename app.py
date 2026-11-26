@@ -14,6 +14,9 @@ import random
 
 import streamlit as st
 
+from coach.agent import MODE_FALLBACK, MODE_REPAIRED, CoachAgent
+from coach.logging_setup import configure_logging
+from coach.planner import GameObservation
 from logic_utils import (
     TOO_HIGH,
     TOO_LOW,
@@ -31,10 +34,22 @@ from logic_utils import (
     update_score,
 )
 
-st.set_page_config(page_title="Glitchy Guesser", page_icon="🎮")
+st.set_page_config(page_title="Glitchy Guesser + AI Coach", page_icon="🎮")
 
 st.title("🎮 Game Glitch Investigator")
-st.caption("An AI-generated guessing game, debugged and repaired.")
+st.caption(
+    "A repaired guessing game with an AI Coach that retrieves strategy notes, "
+    "drafts advice, and checks its own answer before you see it."
+)
+
+
+@st.cache_resource
+def get_coach() -> CoachAgent:
+    """Build the coach once per server process (loading the knowledge base and
+    choosing a provider is not free, and Streamlit reruns this file per click)."""
+    configure_logging()
+    return CoachAgent()
+
 
 st.sidebar.header("Settings")
 
@@ -52,6 +67,7 @@ attempt_limit = get_attempt_limit(difficulty)
 
 st.sidebar.caption(f"Range: {low} to {high}")
 st.sidebar.caption(f"Attempts allowed: {attempt_limit}")
+st.sidebar.caption(f"AI Coach provider: {get_coach().provider.name}")
 
 
 def start_new_game(active_difficulty: str) -> None:
@@ -71,6 +87,7 @@ def start_new_game(active_difficulty: str) -> None:
     st.session_state.status = "playing"
     st.session_state.history = []
     st.session_state.difficulty = active_difficulty
+    st.session_state.coach_advice = None
     # NOTE: `high_scores` is deliberately NOT reset here. It is the one piece of
     # state that outlives a round -- resetting it would defeat the whole point
     # of a high-score table. See init below.
@@ -116,16 +133,15 @@ def render_status() -> None:
     status_slot.info(
         f"Guess a number between {low} and {high}. Attempts left: {attempts_left}"
     )
-    with debug_slot.container():
-        with st.expander("Developer Debug Info"):
-            st.write("Secret:", st.session_state.secret)
-            st.write("Attempts used:", st.session_state.attempts)
-            st.write("Attempts left:", attempts_left)
-            st.write("Score:", st.session_state.score)
-            st.write("Difficulty:", difficulty)
-            st.write("Status:", st.session_state.status)
-            st.write("History:", st.session_state.history)
-            st.write("High scores:", st.session_state.high_scores)
+    with debug_slot.container(), st.expander("Developer Debug Info"):
+        st.write("Secret:", st.session_state.secret)
+        st.write("Attempts used:", st.session_state.attempts)
+        st.write("Attempts left:", attempts_left)
+        st.write("Score:", st.session_state.score)
+        st.write("Difficulty:", difficulty)
+        st.write("Status:", st.session_state.status)
+        st.write("History:", st.session_state.history)
+        st.write("High scores:", st.session_state.high_scores)
 
 
 def render_sidebar_history() -> None:
@@ -170,12 +186,14 @@ def render_sidebar_high_scores() -> None:
 
 raw_guess = st.text_input("Enter your guess:", key=f"guess_input_{difficulty}")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     submit = st.button("Submit Guess 🚀")
 with col2:
     new_game = st.button("New Game 🔁")
 with col3:
+    ask_coach = st.button("Ask AI Coach 🤖")
+with col4:
     show_hint = st.checkbox("Show hint", value=True)
 
 if new_game:
@@ -291,6 +309,71 @@ if submit:
                     f"Score: {st.session_state.score}"
                 )
                 render_round_summary()
+
+
+def current_observation() -> GameObservation:
+    """What the coach is allowed to see: guesses and the hints they got.
+
+    The app knows the secret, so it computes each outcome here -- but only the
+    outcomes (which the player has already seen) are handed to the coach. The
+    secret itself never crosses into coach/, which is the strongest guardrail
+    against the AI leaking it.
+    """
+    secret = st.session_state.secret
+    return GameObservation(
+        low=low,
+        high=high,
+        attempt_limit=attempt_limit,
+        history=tuple((g, check_guess(g, secret)) for g in st.session_state.history),
+        difficulty=difficulty,
+    )
+
+
+def render_coach() -> None:
+    """Show the coach's latest advice, if it is still about the current turn."""
+    stored = st.session_state.get("coach_advice")
+    if not stored or stored["turn"] != len(st.session_state.history):
+        return  # advice is stale once another guess has been made
+    advice = stored["advice"]
+    st.subheader("🤖 AI Coach")
+    if advice.suggested_guess is None:
+        st.info(advice.explanation)
+        return
+    st.success(f"Suggested next guess: **{advice.suggested_guess}**")
+    st.write(advice.explanation)
+    st.progress(advice.confidence, text=f"Confidence {advice.confidence:.0%}")
+    if advice.mode == MODE_FALLBACK:
+        st.warning(
+            "The AI's draft failed a safety check, so this is the planner's exact "
+            "answer instead."
+        )
+    elif advice.mode == MODE_REPAIRED:
+        st.caption("The first draft failed a check and was corrected by the agent.")
+    st.caption(
+        f"Sources: {', '.join(advice.sources) or 'none'} · "
+        f"mode: {advice.mode} · provider: {advice.provider} · {advice.latency_ms} ms"
+    )
+    with st.expander("How the coach decided (agent trace)"):
+        for item in advice.trace:
+            st.write(
+                f"**{item['step']}**", {k: v for k, v in item.items() if k != "step"}
+            )
+
+
+# The coach runs AFTER this run's guess has been processed, so its advice is
+# always about the position the player is actually looking at.
+if ask_coach and st.session_state.status == "playing":
+    try:
+        advice = get_coach().advise(current_observation())
+        st.session_state.coach_advice = {
+            "turn": len(st.session_state.history),
+            "advice": advice,
+        }
+    except Exception as exc:  # noqa: BLE001 -- the game must survive a coach crash
+        st.error(f"The AI Coach is unavailable right now ({type(exc).__name__}).")
+
+if st.session_state.status == "playing":
+    render_coach()
 
 # Rendered last on purpose: by this point this run's guess has been counted, so
 # the numbers shown are the real current ones rather than last run's.

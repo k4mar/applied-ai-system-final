@@ -41,3 +41,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Coach runtime logs (sample logs are committed under docs/sample_runs/)
+logs/
