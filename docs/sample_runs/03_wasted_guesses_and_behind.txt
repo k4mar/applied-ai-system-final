@@ -3,7 +3,7 @@ $ python -m coach.cli --difficulty Hard --history 100:low,120:low,110:low,105:lo
 Hard: history = [(100, 'Too Low'), (120, 'Too Low'), (110, 'Too Low'), (105, 'Too Low')]
   live interval   : 121-200 (80 numbers), attempts left 4, win guaranteed: False
   coach suggests  : 160
-  explanation     : 105 was too low, so the secret is above it. 80 numbers remain (121-200); 160 splits them in half. Stay inside the interval -- repeats and ruled-out numbers cost a turn. A win is no longer guaranteed (80 numbers, 4 attempts), but the midpoint is still your best odds.
+  explanation     : 105 was already ruled out, so it taught nothing new. The secret is still in 121-200 (80 numbers); 160 splits them in half. Stay inside the interval -- repeats and ruled-out numbers cost a turn. A win is no longer guaranteed (80 numbers, 4 attempts), but the midpoint is still your best odds.
   confidence      : 0.92
   sources         : recovery#after-a-wasted-guess, reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out
   mode / provider : accepted / offline-rules
