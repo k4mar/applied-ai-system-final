@@ -171,7 +171,7 @@ bash scripts/record_sample_runs.sh                 # regenerate docs/sample_runs
 ## 💬 Sample interactions
 
 These are real outputs, copied from [`docs/sample_runs/`](docs/sample_runs/), which also
-holds the full traces and a sample of `logs/coach.log`. They use the offline provider, so
+holds the full traces and a sample of `logs/coach.log` ([`coach_log_sample.txt`](docs/sample_runs/coach_log_sample.txt)). They use the offline provider, so
 you get exactly the same output when you run the same commands.
 
 **1. Normal position: after "60 too high" and "20 too low"**

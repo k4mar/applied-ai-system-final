@@ -22,5 +22,5 @@ rm -f logs/coach.log
 python -m coach.cli --history "60:high,20:low" > /dev/null
 python scripts/guardrail_demo.py already_ruled_out > /dev/null
 python scripts/guardrail_demo.py --no-repair provider_crash > /dev/null
-cp logs/coach.log "$D/coach_log_sample.log"
+cp logs/coach.log "$D/coach_log_sample.txt"
 echo "sample runs written to $D/"
