@@ -370,6 +370,21 @@ def test_prompt_contains_facts_and_passages_but_never_a_secret(retriever):
     assert "Never claim to know it" in prompt.system
 
 
+def test_offline_explanation_does_not_reason_from_a_wasted_guess(agent):
+    """Found in manual review: after a ruled-out guess the explanation said
+    "1 was too low, so the secret is above it" -- true, but misleading."""
+    advice = agent.advise(obs([(10, TOO_HIGH), (3, TOO_LOW), (1, TOO_LOW)], "Easy"))
+    assert "already ruled out" in advice.explanation
+    assert "secret is above it" not in advice.explanation
+
+
+def test_offline_explanation_grammar_when_solved(agent):
+    """Found in manual review: a solved position said "within 1 guesses"."""
+    advice = agent.advise(obs([(50, TOO_LOW), (52, TOO_HIGH)]))
+    assert advice.suggested_guess == 51
+    assert "1 guesses" not in advice.explanation
+
+
 def test_auto_provider_falls_back_to_offline_without_a_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert get_provider("auto").name == "offline-rules"

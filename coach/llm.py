@@ -168,12 +168,21 @@ class OfflineProvider:
             why = f"Only {lo} is left -- the hints have pinned it down."
         else:
             last_guess, last_outcome = obs.history[-1]
-            direction = "below" if last_outcome == "Too High" else "above"
-            why = (
-                f"{last_guess} was {last_outcome.lower()}, so the secret is "
-                f"{direction} it. {plan.candidates} numbers remain ({lo}-{hi}); "
-                f"{guess} splits them in half."
-            )
+            if last_guess in plan.wasted_guesses:
+                # Reasoning from a ruled-out guess ("1 was too low, so the secret
+                # is above 1") is true but useless; point at the interval instead.
+                why = (
+                    f"{last_guess} was already ruled out, so it taught nothing new. "
+                    f"The secret is still in {lo}-{hi} ({plan.candidates} numbers); "
+                    f"{guess} splits them in half."
+                )
+            else:
+                direction = "below" if last_outcome == "Too High" else "above"
+                why = (
+                    f"{last_guess} was {last_outcome.lower()}, so the secret is "
+                    f"{direction} it. {plan.candidates} numbers remain ({lo}-{hi}); "
+                    f"{guess} splits them in half."
+                )
 
         if plan.wasted_guesses:
             why += (
@@ -188,8 +197,9 @@ class OfflineProvider:
                 f"{plan.attempts_left} attempts), but the midpoint is still your "
                 "best odds."
             )
-        else:
-            why += f" Halving every turn finishes within {plan.guesses_needed} guesses."
+        elif lo != hi:
+            n = plan.guesses_needed
+            why += f" Halving every turn finishes within {n} guess{'es' * (n != 1)}."
 
         sources = [r.id for r in prompt.passages[:2]]
         # Confidence reflects how decisive the advice is: forced answers and
