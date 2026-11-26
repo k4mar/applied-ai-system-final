@@ -1,0 +1,488 @@
+{
+  "summary": {
+    "provider": "offline-rules",
+    "seconds": 0.53,
+    "autoplay_win_rate": "320/320",
+    "faults_caught": "11/11",
+    "faults_final_advice_safe": "24/24",
+    "consistency": "4/4",
+    "retrieval_hit_at_1": "5/7",
+    "retrieval_hit_at_3": "7/7"
+  },
+  "autoplay": [
+    {
+      "difficulty": "Easy",
+      "games": 20,
+      "wins": 20,
+      "mean_attempts": 3.7,
+      "max_attempts": 5,
+      "attempt_limit": 6,
+      "modes": {
+        "accepted": 74,
+        "repaired": 0,
+        "fallback": 0
+      },
+      "mean_confidence": 0.99,
+      "min_confidence": 0.99
+    },
+    {
+      "difficulty": "Normal",
+      "games": 100,
+      "wins": 100,
+      "mean_attempts": 5.8,
+      "max_attempts": 7,
+      "attempt_limit": 8,
+      "modes": {
+        "accepted": 580,
+        "repaired": 0,
+        "fallback": 0
+      },
+      "mean_confidence": 0.99,
+      "min_confidence": 0.99
+    },
+    {
+      "difficulty": "Hard",
+      "games": 200,
+      "wins": 200,
+      "mean_attempts": 6.76,
+      "max_attempts": 8,
+      "attempt_limit": 8,
+      "modes": {
+        "accepted": 1353,
+        "repaired": 0,
+        "fallback": 0
+      },
+      "mean_confidence": 0.99,
+      "min_confidence": 0.99
+    }
+  ],
+  "fault_injection_with_repair": [
+    {
+      "name": "invalid_json",
+      "simulates": "chatty non-JSON reply",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "Output was not valid JSON."
+      ]
+    },
+    {
+      "name": "markdown_fenced_json",
+      "simulates": "valid JSON wrapped in a markdown fence (should be ACCEPTED)",
+      "first_try_caught": false,
+      "final_mode": "accepted",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": []
+    },
+    {
+      "name": "out_of_game_range",
+      "simulates": "guess outside the difficulty range",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess 999 is outside the game range 1-100."
+      ]
+    },
+    {
+      "name": "already_ruled_out",
+      "simulates": "guess the hints already eliminated",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess 60 is already ruled out; it must be inside 21-59.",
+        "suggested_guess 60 repeats an earlier guess."
+      ]
+    },
+    {
+      "name": "repeats_previous_guess",
+      "simulates": "re-suggests the last guess",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess 20 is already ruled out; it must be inside 21-59.",
+        "suggested_guess 20 repeats an earlier guess."
+      ]
+    },
+    {
+      "name": "claims_to_know_secret",
+      "simulates": "hallucinated / leaked secret",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "explanation claims to know the secret number; the coach cannot know it."
+      ]
+    },
+    {
+      "name": "fabricated_source",
+      "simulates": "cites a passage it was never given",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "sources cite passages that were not provided: ['strategy_guide#page-7']."
+      ]
+    },
+    {
+      "name": "no_sources",
+      "simulates": "ungrounded answer with no citation",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "sources is empty; cite at least one knowledge passage."
+      ]
+    },
+    {
+      "name": "overconfident",
+      "simulates": "confidence outside 0-1",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "confidence 1.7 must be between 0 and 1."
+      ]
+    },
+    {
+      "name": "too_long",
+      "simulates": "rambling explanation",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "explanation is longer than 400 characters."
+      ]
+    },
+    {
+      "name": "decimal_guess",
+      "simulates": "non-integer guess",
+      "first_try_caught": true,
+      "final_mode": "repaired",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess must be a whole number, not a decimal."
+      ]
+    },
+    {
+      "name": "provider_crash",
+      "simulates": "network/API failure",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "provider error: simulated timeout"
+      ]
+    }
+  ],
+  "fault_injection_no_repair": [
+    {
+      "name": "invalid_json",
+      "simulates": "chatty non-JSON reply",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "Output was not valid JSON.",
+        "Output was not valid JSON."
+      ]
+    },
+    {
+      "name": "markdown_fenced_json",
+      "simulates": "valid JSON wrapped in a markdown fence (should be ACCEPTED)",
+      "first_try_caught": false,
+      "final_mode": "accepted",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": []
+    },
+    {
+      "name": "out_of_game_range",
+      "simulates": "guess outside the difficulty range",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess 999 is outside the game range 1-100.",
+        "suggested_guess 999 is outside the game range 1-100."
+      ]
+    },
+    {
+      "name": "already_ruled_out",
+      "simulates": "guess the hints already eliminated",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess 60 is already ruled out; it must be inside 21-59.",
+        "suggested_guess 60 repeats an earlier guess.",
+        "suggested_guess 60 is already ruled out; it must be inside 21-59.",
+        "suggested_guess 60 repeats an earlier guess."
+      ]
+    },
+    {
+      "name": "repeats_previous_guess",
+      "simulates": "re-suggests the last guess",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess 20 is already ruled out; it must be inside 21-59.",
+        "suggested_guess 20 repeats an earlier guess.",
+        "suggested_guess 20 is already ruled out; it must be inside 21-59.",
+        "suggested_guess 20 repeats an earlier guess."
+      ]
+    },
+    {
+      "name": "claims_to_know_secret",
+      "simulates": "hallucinated / leaked secret",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "explanation claims to know the secret number; the coach cannot know it.",
+        "explanation claims to know the secret number; the coach cannot know it."
+      ]
+    },
+    {
+      "name": "fabricated_source",
+      "simulates": "cites a passage it was never given",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "sources cite passages that were not provided: ['strategy_guide#page-7'].",
+        "sources cite passages that were not provided: ['strategy_guide#page-7']."
+      ]
+    },
+    {
+      "name": "no_sources",
+      "simulates": "ungrounded answer with no citation",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "sources is empty; cite at least one knowledge passage.",
+        "sources is empty; cite at least one knowledge passage."
+      ]
+    },
+    {
+      "name": "overconfident",
+      "simulates": "confidence outside 0-1",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "confidence 1.7 must be between 0 and 1.",
+        "confidence 1.7 must be between 0 and 1."
+      ]
+    },
+    {
+      "name": "too_long",
+      "simulates": "rambling explanation",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "explanation is longer than 400 characters.",
+        "explanation is longer than 400 characters."
+      ]
+    },
+    {
+      "name": "decimal_guess",
+      "simulates": "non-integer guess",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "suggested_guess must be a whole number, not a decimal.",
+        "suggested_guess must be a whole number, not a decimal."
+      ]
+    },
+    {
+      "name": "provider_crash",
+      "simulates": "network/API failure",
+      "first_try_caught": true,
+      "final_mode": "fallback",
+      "final_guess": 40,
+      "final_safe": true,
+      "errors": [
+        "provider error: simulated timeout"
+      ]
+    }
+  ],
+  "consistency": [
+    {
+      "position": "Normal opening",
+      "suggestions": [
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "consistent": true
+    },
+    {
+      "position": "Normal [(50, 'Too Low'), (75, 'Too High')]",
+      "suggestions": [
+        62,
+        62,
+        62,
+        62,
+        62
+      ],
+      "consistent": true
+    },
+    {
+      "position": "Hard [(100, 'Too High'), (50, 'Too Low'), (75, 'Too Low')]",
+      "suggestions": [
+        87,
+        87,
+        87,
+        87,
+        87
+      ],
+      "consistent": true
+    },
+    {
+      "position": "Easy [(10, 'Too High'), (10, 'Too High'), (3, 'Too Low')]",
+      "suggestions": [
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "consistent": true
+    }
+  ],
+  "retrieval": [
+    {
+      "situation": [
+        "opening"
+      ],
+      "expected": "binary_search#opening-move",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "retrieved": [
+        "binary_search#opening-move",
+        "difficulty#normal",
+        "hot_cold#direction-beats-temperature"
+      ]
+    },
+    {
+      "situation": [
+        "narrowing",
+        "after_too_high"
+      ],
+      "expected": "reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "retrieved": [
+        "reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out",
+        "binary_search#guess-the-middle-of-what-is-left",
+        "reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out"
+      ]
+    },
+    {
+      "situation": [
+        "narrowing",
+        "after_too_low"
+      ],
+      "expected": "reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "retrieved": [
+        "reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out",
+        "binary_search#guess-the-middle-of-what-is-left",
+        "reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out"
+      ]
+    },
+    {
+      "situation": [
+        "narrowing",
+        "wasted_guess",
+        "after_too_high"
+      ],
+      "expected": "recovery#after-a-wasted-guess",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "retrieved": [
+        "recovery#after-a-wasted-guess",
+        "reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out",
+        "reading_hints#never-repeat-or-guess-outside-the-interval"
+      ]
+    },
+    {
+      "situation": [
+        "narrowing",
+        "behind",
+        "after_too_low"
+      ],
+      "expected": "recovery#the-midpoint-is-still-the-best-play-when-behind",
+      "hit_at_1": true,
+      "hit_at_3": true,
+      "retrieved": [
+        "recovery#the-midpoint-is-still-the-best-play-when-behind",
+        "recovery#when-a-win-is-no-longer-guaranteed",
+        "reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out"
+      ]
+    },
+    {
+      "situation": [
+        "solved",
+        "last_attempt",
+        "wasted_guess",
+        "after_too_low"
+      ],
+      "expected": "recovery#last-attempt",
+      "hit_at_1": false,
+      "hit_at_3": true,
+      "retrieved": [
+        "recovery#after-a-wasted-guess",
+        "reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out",
+        "recovery#last-attempt"
+      ]
+    },
+    {
+      "situation": [
+        "solved",
+        "after_too_low"
+      ],
+      "expected": "reading_hints#keep-track-of-the-live-interval",
+      "hit_at_1": false,
+      "hit_at_3": true,
+      "retrieved": [
+        "reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out",
+        "reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out",
+        "reading_hints#keep-track-of-the-live-interval"
+      ]
+    }
+  ]
+}
