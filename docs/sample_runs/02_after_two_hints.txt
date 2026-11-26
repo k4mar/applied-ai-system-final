@@ -1,0 +1,14 @@
+$ python -m coach.cli --difficulty Normal --history 60:high,20:low
+(provider: offline-rules; log: coach.log)
+Normal: history = [(60, 'Too High'), (20, 'Too Low')]
+  live interval   : 21-59 (39 numbers), attempts left 6, win guaranteed: True
+  coach suggests  : 40
+  explanation     : 20 was too low, so the secret is above it. 39 numbers remain (21-59); 40 splits them in half. Halving every turn finishes within 6 guesses.
+  confidence      : 0.99
+  sources         : reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out, binary_search#guess-the-middle-of-what-is-left
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '21-59', 'candidates': 39, 'attempts_left': 6, 'optimal': 40, 'win_guaranteed': True, 'situation': ['narrowing', 'after_too_low']}
+    - retrieve  {'query': 'guess middle what is left live interval halve too low ruled out lower bound higher Normal attempts', 'passages': [('reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out', 15.896), ('binary_search#guess-the-middle-of-what-is-left', 12.203), ('reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out', 10.914)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}

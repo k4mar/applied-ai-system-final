@@ -1,0 +1,10 @@
+$ python -m coach.cli --difficulty Normal --history 60:low,55:high
+(provider: offline-rules; log: coach.log)
+Normal: history = [(60, 'Too Low'), (55, 'Too High')]
+  coach suggests  : None
+  explanation     : These hints contradict each other, so no number can win. That points to a bug in the game, not your play.
+  confidence      : 0.00
+  sources         : -
+  mode / provider : terminal / offline-rules
+  agent trace     :
+    - plan      {'error': 'Hints leave no possible number after guess 55 (Too High)'}

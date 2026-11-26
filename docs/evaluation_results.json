@@ -1,7 +1,7 @@
 {
   "summary": {
     "provider": "offline-rules",
-    "seconds": 0.53,
+    "seconds": 0.49,
     "autoplay_win_rate": "320/320",
     "faults_caught": "11/11",
     "faults_final_advice_safe": "24/24",

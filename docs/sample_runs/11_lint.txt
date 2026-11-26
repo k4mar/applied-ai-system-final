@@ -1,0 +1,9 @@
+$ flake8 --max-line-length=88 app.py logic_utils.py conftest.py coach scripts tests/
+(no output -- 0 violations)
+
+$ ruff check --line-length=88 app.py logic_utils.py conftest.py coach scripts tests/
+All checks passed!
+
+$ black --check --line-length=88 app.py logic_utils.py conftest.py coach scripts tests/
+All done! ✨ 🍰 ✨
+16 files would be left unchanged.

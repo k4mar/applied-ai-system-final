@@ -1,0 +1,14 @@
+$ python -m coach.cli --difficulty Normal
+(provider: offline-rules; log: coach.log)
+Normal: history = none
+  live interval   : 1-100 (100 numbers), attempts left 8, win guaranteed: True
+  coach suggests  : 50
+  explanation     : Nothing is ruled out yet, so open in the middle of 1-100. Whatever the hint says, half the range is gone. Halving every turn finishes within 7 guesses.
+  confidence      : 0.99
+  sources         : binary_search#opening-move, difficulty#normal
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '1-100', 'candidates': 100, 'attempts_left': 8, 'optimal': 50, 'win_guaranteed': True, 'situation': ['opening']}
+    - retrieve  {'query': 'opening move first guess midpoint whole range Normal attempts', 'passages': [('binary_search#opening-move', 17.796), ('difficulty#normal', 6.251), ('hot_cold#direction-beats-temperature', 4.165)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}

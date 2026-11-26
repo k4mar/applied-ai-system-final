@@ -1,0 +1,61 @@
+$ python -m coach.cli --difficulty Hard --secret 137 --autoplay
+(provider: offline-rules; log: coach.log)
+Hard: range 1-200, 8 attempts, secret pinned to 137
+
+[turn 1]
+  live interval   : 1-200 (200 numbers), attempts left 8, win guaranteed: True
+  coach suggests  : 100
+  explanation     : Nothing is ruled out yet, so open in the middle of 1-200. Whatever the hint says, half the range is gone. Halving every turn finishes within 8 guesses.
+  confidence      : 0.99
+  sources         : binary_search#opening-move, difficulty#hard
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '1-200', 'candidates': 200, 'attempts_left': 8, 'optimal': 100, 'win_guaranteed': True, 'situation': ['opening']}
+    - retrieve  {'query': 'opening move first guess midpoint whole range Hard attempts', 'passages': [('binary_search#opening-move', 17.796), ('difficulty#hard', 6.302), ('hot_cold#what-the-labels-measure', 5.27)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}
+  >> player guesses 100 -> Too Low
+
+[turn 2]
+  live interval   : 101-200 (100 numbers), attempts left 7, win guaranteed: True
+  coach suggests  : 150
+  explanation     : 100 was too low, so the secret is above it. 100 numbers remain (101-200); 150 splits them in half. Halving every turn finishes within 7 guesses.
+  confidence      : 0.99
+  sources         : reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out, binary_search#guess-the-middle-of-what-is-left
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '101-200', 'candidates': 100, 'attempts_left': 7, 'optimal': 150, 'win_guaranteed': True, 'situation': ['narrowing', 'after_too_low']}
+    - retrieve  {'query': 'guess middle what is left live interval halve too low ruled out lower bound higher Hard attempts', 'passages': [('reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out', 15.896), ('binary_search#guess-the-middle-of-what-is-left', 12.203), ('reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out', 10.914)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}
+  >> player guesses 150 -> Too High
+
+[turn 3]
+  live interval   : 101-149 (49 numbers), attempts left 6, win guaranteed: True
+  coach suggests  : 125
+  explanation     : 150 was too high, so the secret is below it. 49 numbers remain (101-149); 125 splits them in half. Halving every turn finishes within 6 guesses.
+  confidence      : 0.99
+  sources         : reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out, binary_search#guess-the-middle-of-what-is-left
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '101-149', 'candidates': 49, 'attempts_left': 6, 'optimal': 125, 'win_guaranteed': True, 'situation': ['narrowing', 'after_too_high']}
+    - retrieve  {'query': 'guess middle what is left live interval halve too high ruled out upper bound lower Hard attempts', 'passages': [('reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out', 14.838), ('binary_search#guess-the-middle-of-what-is-left', 11.87), ('reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out', 11.243)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}
+  >> player guesses 125 -> Too Low
+
+[turn 4]
+  live interval   : 126-149 (24 numbers), attempts left 5, win guaranteed: True
+  coach suggests  : 137
+  explanation     : 125 was too low, so the secret is above it. 24 numbers remain (126-149); 137 splits them in half. Halving every turn finishes within 5 guesses.
+  confidence      : 0.99
+  sources         : reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out, binary_search#guess-the-middle-of-what-is-left
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '126-149', 'candidates': 24, 'attempts_left': 5, 'optimal': 137, 'win_guaranteed': True, 'situation': ['narrowing', 'after_too_low']}
+    - retrieve  {'query': 'guess middle what is left live interval halve too low ruled out lower bound higher Hard attempts', 'passages': [('reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out', 15.896), ('binary_search#guess-the-middle-of-what-is-left', 12.203), ('reading_hints#too-high-means-every-number-at-or-above-the-guess-is-ruled-out', 10.914)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}
+  >> player guesses 137 -> Win
+
+RESULT: won in 4 of 8 attempts

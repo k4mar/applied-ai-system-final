@@ -219,7 +219,9 @@ def main(argv=None) -> int:
 
     for k, v in summary.items():
         print(f"{k:28} {v}")
-    print(f"report: {out / 'evaluation_report.md'}")
+    report = (out / "evaluation_report.md").resolve()
+    shown = report.relative_to(ROOT) if report.is_relative_to(ROOT) else report
+    print(f"report: {shown}")
     return 0
 
 

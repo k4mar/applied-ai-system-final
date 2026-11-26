@@ -1,0 +1,14 @@
+$ python -m coach.cli --difficulty Hard --history 100:low,120:low,110:low,105:low
+(provider: offline-rules; log: coach.log)
+Hard: history = [(100, 'Too Low'), (120, 'Too Low'), (110, 'Too Low'), (105, 'Too Low')]
+  live interval   : 121-200 (80 numbers), attempts left 4, win guaranteed: False
+  coach suggests  : 160
+  explanation     : 105 was too low, so the secret is above it. 80 numbers remain (121-200); 160 splits them in half. Stay inside the interval -- repeats and ruled-out numbers cost a turn. A win is no longer guaranteed (80 numbers, 4 attempts), but the midpoint is still your best odds.
+  confidence      : 0.92
+  sources         : recovery#after-a-wasted-guess, reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out
+  mode / provider : accepted / offline-rules
+  agent trace     :
+    - plan      {'interval': '121-200', 'candidates': 80, 'attempts_left': 4, 'optimal': 160, 'win_guaranteed': False, 'situation': ['narrowing', 'behind', 'wasted_guess', 'after_too_low']}
+    - retrieve  {'query': 'guess middle what is left live interval halve win no longer guaranteed behind recovering midpoint best chance wasted guess repeat outside interval ruled out too low ruled out lower bound higher Hard attempts', 'passages': [('recovery#after-a-wasted-guess', 22.112), ('reading_hints#too-low-means-every-number-at-or-below-the-guess-is-ruled-out', 20.991), ('recovery#the-midpoint-is-still-the-best-play-when-behind', 19.911)]}
+    - generate  {'attempt': 1}
+    - check     {'attempt': 1, 'ok': True, 'errors': []}
